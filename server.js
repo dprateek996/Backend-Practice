@@ -78,4 +78,18 @@ app.delete('/todos/:id', authMiddleware, async (req, res) => {
     res.json({ message: "Todo deleted successfully" });
 });
 
+app.get('/todos/:id/clone', authMiddleware, async (req,res)=>{
+    const id = req.params.id;
+    const originalTodo = await prisma.todo.findUnique({where: {id: parseInt(id)}});
+    if(!originalTodo) return res.status(404).send({message: "Todo not found"});
+
+    const clonedTodo = await prisma.todo.create({
+        data: {
+            task: originalTodo.task,
+            userId: req.user.id
+        }
+    });
+    res.json(clonedTodo);
+})
+
 app.listen(3000, () => console.log("Server running on port 3000"));
