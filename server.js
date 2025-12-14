@@ -1,0 +1,78 @@
+import express from 'express';
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
+import bcrypt from 'bcryptjs'; // Standard naming
+import jwt from 'jsonwebtoken';
+
+const prisma = new PrismaClient();
+const app = express();
+app.use(express.json());
+
+// 1. Register
+app.post('/auth/register', async (req, res) => {
+    const { email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+        data: { email, password: hashedPassword }
+    });
+    res.json({ message: "User registered successfully" });
+});
+
+// 2. Login
+app.post('/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    const user = await prisma.user.findUnique({ where: { email } });
+    
+    if (!user) return res.status(404).send("User not found");
+    
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) return res.status(401).send("Invalid password");
+
+    const token = jwt.sign({ id: user.id }, "SUPER_SECRET_KEY");
+    res.json({ token });
+});
+
+// 3. Middleware
+function authMiddleware(req, res, next) {
+    const token = req.headers.authorization;
+    if (!token) return res.status(401).send("Access denied.");
+
+    jwt.verify(token, "SUPER_SECRET_KEY", (err, decodedUser) => {
+        if (err) return res.status(403).send("Invalid token");
+        req.user = decodedUser; // Attaching user to request
+        next();
+    });
+}
+
+// 4. Get Todos (Protected)
+app.get('/todos', authMiddleware, async (req, res) => {
+    // Logic: Only get todos for the logged-in user!
+    const todos = await prisma.todo.findMany({
+        where: { userId: req.user.id }
+    });
+    res.json(todos);
+});
+
+// 5. Create Todo (Protected + Logic Fixed)
+app.post('/todos', authMiddleware, async (req, res) => {
+    const { task } = req.body;
+    if (!task) return res.status(400).send({ message: "Task is required" });
+
+    // Using req.user.id from middleware
+    const newTodo = await prisma.todo.create({
+        data: {
+            task,
+            userId: req.user.id 
+        }
+    });
+    res.json(newTodo);
+});
+
+// 6. Delete Todo
+app.delete('/todos/:id', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    await prisma.todo.delete({ where: { id: parseInt(id) } });
+    res.json({ message: "Todo deleted successfully" });
+});
+
+app.listen(3000, () => console.log("Server running on port 3000"));
